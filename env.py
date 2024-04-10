@@ -50,6 +50,7 @@ class JetBotEnv(gymnasium.Env):
 
         from omni.isaac.core.utils.extensions import enable_extension
         enable_extension("omni.kit.livestream.native")
+       # enable_extension("omni.isaac.ros2_bridge")
 
         from omni.isaac.core import World
         from omni.isaac.core.objects import VisualCuboid
@@ -149,7 +150,7 @@ class JetBotEnv(gymnasium.Env):
         return observations, {}
 
     def get_observations(self):
-        self._my_world.render()
+        #self._my_world.render()
         jetbot_world_position, jetbot_world_orientation = self.jetbot.get_world_pose()
         jetbot_linear_velocity = self.jetbot.get_linear_velocity()
         jetbot_angular_velocity = self.jetbot.get_angular_velocity()
