@@ -7,7 +7,7 @@ from geometry_msgs.msg import Twist
 from rclpy.executors import MultiThreadedExecutor
 import threading
 
-from env import JetBotEnv
+from env_no_warehouse import JetBotEnv
 from stable_baselines3 import PPO
 import numpy as np
 import time
@@ -106,7 +106,7 @@ def main(args=None):
 
     # initialize the ROS nodes
     ros_sim_env = RosSimEnv(jetbot_env)
-    policy_path = "./cnn_policy/jetbot_policy.zip"
+    policy_path = "./cnn_policy/jetbot_policy_550K.zip"
     ros_agent = JetBotAgent(policy_path)
 
     # add the nodes to the executor

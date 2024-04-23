@@ -4,7 +4,7 @@ import argparse
 
 import carb
 import torch as th
-from env import JetBotEnv
+from env_no_warehouse import JetBotEnv
 import wandb
 from wandb.integration.sb3 import WandbCallback
 
@@ -48,7 +48,7 @@ except Exception as e:
 
 config = {
     "policy_type": "MlpPolicy",
-    "total_timesteps": 50000,
+    "total_timesteps": 2000000,
     "env_name": "JetBotEnv",
 }
 run = wandb.init(
@@ -71,7 +71,7 @@ total_timesteps = config["total_timesteps"]
 if args.test is True:
     total_timesteps = 10000
 
-#checkpoint_callback = CheckpointCallback(save_freq=1000, save_path=log_dir, name_prefix="jetbot_policy_checkpoint")
+checkpoint_callback = CheckpointCallback(save_freq=1000, save_path=log_dir, name_prefix="jetbot_policy_checkpoint")
 model = PPO(
     policy,
     my_env,
@@ -92,12 +92,18 @@ model = PPO(
 )
 model.learn(
     total_timesteps=total_timesteps, 
-    callback=WandbCallback(
-        gradient_save_freq=50,
-        model_save_freq=10000,
-        model_save_path=f"models/{run.id}",
-        verbose=2,
+    callback=[
+        WandbCallback(
+            gradient_save_freq=50,
+            model_save_freq=50000,
+            model_save_path=f"models/{run.id}",
+            verbose=2,
         ),
+        CheckpointCallback(
+            save_freq=50000, 
+            save_path=log_dir, 
+            name_prefix="jetbot_policy_checkpoint")
+    ],
     progress_bar=True,
     )
 
