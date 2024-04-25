@@ -30,19 +30,21 @@ class JetBotEnv(gymnasium.Env):
             "renderer": "RayTracedLighting",
             "display_options": 3286,  # Set display options to show default grid
             "anti_aliasing": 0,
+            "enable_livestream": False,
         }
 
 
         self.headless = headless
         #self._simulation_app = SimulationApp({"headless": self.headless, "anti_aliasing": 0})
         self._simulation_app = SimulationApp(launch_config=CONFIG)
-
-
+        
+        # Set the rendering and physics time steps
         self._skip_frame = skip_frame
         self._dt = physics_dt * self._skip_frame
         self._max_episode_length = max_episode_length
         self._steps_after_reset = int(rendering_dt / physics_dt)
 
+        # code to setup the livestream extension
         self._simulation_app.set_setting("/app/window/drawMouse", True)
         self._simulation_app.set_setting("/app/livestream/proto", "ws")
         self._simulation_app.set_setting("/app/livestream/websocket/framerate_limit", 120)
@@ -50,20 +52,26 @@ class JetBotEnv(gymnasium.Env):
 
         from omni.isaac.core.utils.extensions import enable_extension
         enable_extension("omni.kit.livestream.native")
-       # enable_extension("omni.isaac.ros2_bridge")
 
         from omni.isaac.core import World
         from omni.isaac.core.objects import VisualCuboid
         from omni.isaac.core.utils.nucleus import get_assets_root_path
         from omni.isaac.wheeled_robots.controllers.differential_controller import DifferentialController
         from omni.isaac.wheeled_robots.robots import WheeledRobot
+        import omni.isaac.core.utils.numpy.rotations as rot_utils
+        from omni.isaac.sensors import Camera
 
         self._my_world = World(physics_dt=physics_dt, rendering_dt=rendering_dt, stage_units_in_meters=1.0)
+
+        # add a ground plane to the scene
         self._my_world.scene.add_default_ground_plane()
+
         assets_root_path = get_assets_root_path()
         if assets_root_path is None:
             carb.log_error("Could not find Isaac Sim assets folder")
             return
+        
+        # Add a jetbot to the scene
         jetbot_asset_path = assets_root_path + "/Isaac/Robots/Jetbot/jetbot.usd"
         self.jetbot = self._my_world.scene.add(
             WheeledRobot(
@@ -72,31 +80,47 @@ class JetBotEnv(gymnasium.Env):
                 wheel_dof_names=["left_wheel_joint", "right_wheel_joint"],
                 create_robot=True,
                 usd_path=jetbot_asset_path,
-                position=np.array([0, 0.0, 0.03]),
+                position=np.array([0, 0.0, 0.032]),
                 orientation=np.array([1.0, 0.0, 0.0, 0.0]),
             )
         )
 
-        robot_prim = self.jetbot.prim
-        robot_prim.GetAttribute("xformOp:scale").Set((5.0, 5.0, 5.0))
+        camera = Camera(
+            prim_path="/World/camera",
+            position=np.array([0.0, 0.0, 25.0]),
+            frequency=20,
+            resolution=(256, 256),
+            orientation=rot_utils.euler_angles_to_quats(np.array([0, 90, 0]), degrees=True),
+        )
 
+        # Add a controller to the robot
         self.jetbot_controller = DifferentialController(name="simple_control", wheel_radius=0.0325, wheel_base=0.1125)
+
+        # Add a red cube to the scene as the goal
         self.goal = self._my_world.scene.add(
             VisualCuboid(
                 prim_path="/new_cube_1",
                 name="visual_cube",
                 position=np.array([0.60, 0.30, 0.05]),
-                size=0.3,
+                size=0.1,
                 color=np.array([1.0, 0, 0]),
             )
         )
+
+
+        # Set the seed by calling the method in the parent class
         self.seed(seed)
-        self.reward_range = (-float("inf"), float("inf"))
+
+        # Call the parent class constructor for the gym environment
         gymnasium.Env.__init__(self)
+
+        # Define the action and observation spaces
+        self.reward_range = (-float("inf"), float("inf"))
         self.action_space = spaces.Box(low=-1, high=1.0, shape=(2,), dtype=np.float32)
         self.observation_space = spaces.Box(low=float("inf"), high=float("inf"), shape=(16,), dtype=np.float32)
 
-        self.max_velocity = 3
+        # Set some robot parameters
+        self.max_velocity = 1
         self.max_angular_velocity = math.pi
         self.reset_counter = 0
         return
@@ -147,7 +171,7 @@ class JetBotEnv(gymnasium.Env):
         self.reset_counter = 0
         # randomize goal location in circle around robot
         alpha = 2 * math.pi * np.random.rand()
-        r = 2.00 * math.sqrt(np.random.rand()) + 6
+        r = 1.00 * math.sqrt(np.random.rand()) + 0.20
         self.goal.set_world_pose(np.array([math.sin(alpha) * r, math.cos(alpha) * r, 0.05]))
         observations = self.get_observations()
         self._simulation_app.update()

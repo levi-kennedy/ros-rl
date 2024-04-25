@@ -16,8 +16,8 @@ class JetBotEnv(gymnasium.Env):
         skip_frame=1,
         physics_dt=1.0 / 60.0,
         rendering_dt=1.0 / 60.0,
-        max_episode_length=256,
-        seed=0,
+        max_episode_length=2048,
+        seed=2,
         headless=True,
     ) -> None:
         from omni.isaac.kit import SimulationApp
@@ -57,6 +57,9 @@ class JetBotEnv(gymnasium.Env):
         from omni.isaac.core.utils.nucleus import get_assets_root_path
         from omni.isaac.wheeled_robots.controllers.differential_controller import DifferentialController
         from omni.isaac.wheeled_robots.robots import WheeledRobot
+        import omni.kit.commands
+        import omni.isaac.core.utils.stage as stage_utils
+        from pxr import UsdGeom
 
         self._my_world = World(physics_dt=physics_dt, rendering_dt=rendering_dt, stage_units_in_meters=1.0)
         self._my_world.scene.add_default_ground_plane()
@@ -67,36 +70,65 @@ class JetBotEnv(gymnasium.Env):
         jetbot_asset_path = assets_root_path + "/Isaac/Robots/Jetbot/jetbot.usd"
         self.jetbot = self._my_world.scene.add(
             WheeledRobot(
-                prim_path="/jetbot",
+                prim_path="/World/jetbot",
                 name="my_jetbot",
                 wheel_dof_names=["left_wheel_joint", "right_wheel_joint"],
                 create_robot=True,
                 usd_path=jetbot_asset_path,
-                position=np.array([0, 0.0, 0.03]),
-                orientation=np.array([1.0, 0.0, 0.0, 0.0]),
+                position=np.array([0, -5.0, 0.03]),
+                orientation=np.array([1.0, 0.0, 0.0, 0.0]),                
             )
         )
-
         robot_prim = self.jetbot.prim
         robot_prim.GetAttribute("xformOp:scale").Set((5.0, 5.0, 5.0))
-
+        #print(f"Jetbot created at {self.jetbot.get_world_pose()} with attrbutes {robot_prim.GetAttributes()}")
         self.jetbot_controller = DifferentialController(name="simple_control", wheel_radius=0.0325, wheel_base=0.1125)
         self.goal = self._my_world.scene.add(
             VisualCuboid(
-                prim_path="/new_cube_1",
+                prim_path="/World/new_cube_1",
                 name="visual_cube",
-                position=np.array([0.60, 0.30, 0.05]),
+                position=np.array([0.0, 4.0, 0.15]),
                 size=0.3,
                 color=np.array([1.0, 0, 0]),
             )
         )
+        #print(f"Goal cube created at {self.goal.get_world_pose()}, with attributes {self.goal.prim.GetAttributes()}")
+        
+        #File path to the warehouse USD file
+        warehouse_usd_file_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+        # Add the warehouse to the scene
+        warehouse_prim = stage_utils.add_reference_to_stage(usd_path=warehouse_usd_file_path, prim_path="/World/warehouse")
+
+        # Add the cone to the scene
+        cone_usd_file_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd"
+        cone_prim = stage_utils.add_reference_to_stage(usd_path=cone_usd_file_path, prim_path="/World/cone")
+        xformable_cone = UsdGeom.Xformable(cone_prim)
+        xformable_cone.AddTranslateOp().Set(value=(2.0, 2.5, 0.0))
+        xformable_cone.AddScaleOp().Set(value=(2.0, 2.0, 2.0))
+        
+
+        # Add floor wet sign to scene
+        floor_wet_sign_usd_file_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd"
+        floor_wet_sign_prim = stage_utils.add_reference_to_stage(usd_path=floor_wet_sign_usd_file_path, prim_path="/World/floor_wet_sign")
+        xformable_floor_wet_sign = UsdGeom.Xformable(floor_wet_sign_prim)
+        xformable_floor_wet_sign.AddTranslateOp().Set(value=(0.0, 2.0, 0.05))
+        xformable_floor_wet_sign.AddScaleOp().Set(value=(2.0, 2.0, 2.0))
+        
+
+        # Subscribe to collision events        
+        subscription_id = omni.kit.commands.execute(
+            "IsaacRegisterCustomEventHandler",
+            event_type="collision",
+            callback_fn=self.on_collision_event,
+            immediate=True)
+
         self.seed(seed)
         self.reward_range = (-float("inf"), float("inf"))
         gymnasium.Env.__init__(self)
         self.action_space = spaces.Box(low=-1, high=1.0, shape=(2,), dtype=np.float32)
         self.observation_space = spaces.Box(low=float("inf"), high=float("inf"), shape=(16,), dtype=np.float32)
 
-        self.max_velocity = 3
+        self.max_velocity = 3.0
         self.max_angular_velocity = math.pi
         self.reset_counter = 0
         return
@@ -138,7 +170,8 @@ class JetBotEnv(gymnasium.Env):
         previous_dist_to_goal = np.linalg.norm(goal_world_position - previous_jetbot_position)
         current_dist_to_goal = np.linalg.norm(goal_world_position - current_jetbot_position)
         reward = previous_dist_to_goal - current_dist_to_goal
-        if current_dist_to_goal < 0.1:
+        
+        if current_dist_to_goal < 0.5:
             done = True
         return observations, reward, done, truncated, info
 
@@ -146,11 +179,14 @@ class JetBotEnv(gymnasium.Env):
         self._my_world.reset()
         self.reset_counter = 0
         # randomize goal location in circle around robot
-        alpha = 2 * math.pi * np.random.rand()
-        r = 2.00 * math.sqrt(np.random.rand()) + 6
-        self.goal.set_world_pose(np.array([math.sin(alpha) * r, math.cos(alpha) * r, 0.05]))
+        # alpha = 2 * math.pi * np.random.rand()
+        # r = 1.00 * math.sqrt(np.random.rand()) + 0.20
+        # self.goal.set_world_pose(np.array([math.sin(alpha) * r, math.cos(alpha) * r, 0.05]))
+        self.goal.set_world_pose(np.array([(np.random.rand()-0.5)*4, 4+np.random.rand(), 0.15]))
+        #self.goal.set_world_pose(np.array([0, 4, 0.05]))
         observations = self.get_observations()
         self._simulation_app.update()
+        #print(f"Resetting environment, goal at {self.goal.get_world_pose()}")
         return observations, {}
 
     def get_observations(self):
@@ -182,3 +218,9 @@ class JetBotEnv(gymnasium.Env):
         self.np_random, seed = gymnasium.utils.seeding.np_random(seed)
         np.random.seed(seed)
         return [seed]
+
+    def on_collision_event(prim_path_1, prim_path_2):
+    # Your collision handling logic here:
+        
+        print(f"Collision: {prim_path_1} collided with {prim_path_2}")
+        # Implement your collision response (e.g., reverse, stop, etc.)
